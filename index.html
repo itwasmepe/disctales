@@ -132,6 +132,58 @@
     </aside>
   </div>
 
+  <!-- Checkout Page (Order Review) -->
+  <div id="checkout-page" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/50" id="checkout-overlay"></div>
+    <main class="absolute inset-0 overflow-y-auto p-6 grid place-items-center">
+      <div class="w-full max-w-3xl bg-[#0f1430] border border-white/10 rounded-2xl shadow-soft p-6">
+        <div class="flex items-start justify-between">
+          <h3 class="text-2xl font-bold">Bestelling controleren</h3>
+          <button id="close-checkout" class="p-2 rounded-xl bg-white/10 hover:bg-white/20">Sluit</button>
+        </div>
+        <div class="mt-4 grid md:grid-cols-2 gap-6">
+          <section>
+            <h4 class="font-semibold mb-2">Je artikelen</h4>
+            <div id="checkout-items" class="space-y-3 max-h-72 overflow-y-auto"></div>
+            $1
+              <div class="flex justify-between"><span>BTW <span id="co-vat-rate">0%</span></span><span id="co-vat">€0,00</span></div>
+              <div class="flex justify-between font-bold text-lg mt-2"><span>Totaal</span><span id="co-total">€0,00</span></div>
+            </div>
+          </section>
+          <section>
+            <h4 class="font-semibold mb-2">Klantgegevens</h4>
+            $1
+              <select id="co-country" class="w-full px-4 py-2 rounded-xl bg-white/10 border border-white/10" required>
+                <option value="">Kies land (EU)</option>
+                <option value="BE">België</option>
+                <option value="NL">Nederland</option>
+                <option value="DE">Duitsland</option>
+                <option value="FR">Frankrijk</option>
+                <option value="ES">Spanje</option>
+                <option value="IT">Italië</option>
+                <option value="PT">Portugal</option>
+                <option value="LU">Luxemburg</option>
+                <option value="AT">Oostenrijk</option>
+                <option value="IE">Ierland</option>
+              </select>
+              <select id="co-shipping-method" class="w-full px-4 py-2 rounded-xl bg-white/10 border border-white/10" required>
+              </select>
+              <input id="co-name" class="w-full px-4 py-2 rounded-xl bg-white/10 border border-white/10" placeholder="Volledige naam" required />
+              <input id="co-email" type="email" class="w-full px-4 py-2 rounded-xl bg-white/10 border border-white/10" placeholder="E‑mail" required />
+              <input id="co-address" class="w-full px-4 py-2 rounded-xl bg-white/10 border border-white/10" placeholder="Adres (optioneel)" />
+              <label class="flex items-center gap-2 text-sm text-white/70">
+                <input id="co-terms" type="checkbox" class="accent-brand-500" required />
+                Ik ga akkoord met de algemene voorwaarden.
+              </label>
+              <button id="pay-now" type="submit" class="w-full px-5 py-3 rounded-2xl bg-brand-500 hover:bg-brand-600 font-semibold">Bevestig & Betaal</button>
+              <p class="text-xs text-white/50">Na bevestiging ga je door naar Stripe om veilig af te rekenen.</p>
+            </form>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
   <!-- Templates -->
   <template id="product-card-tpl">
     <article class="bg-white/5 rounded-2xl p-3 lift border border-white/10 flex flex-col h-full">
@@ -164,20 +216,29 @@
     // ==========================
     // CONFIG — pas aan voor jouw shop
     // ==========================
-    const CONFIG = {
-      shopName: 'Discount Tales',
-      currency: 'EUR',
-      currencySymbol: '€',
+    $1
+      tax: {
+        defaultCountry: 'BE',
+        ratesByCountry: { BE:21, NL:21, DE:19, FR:20, ES:21, IT:22, PT:23, LU:17, AT:20, IE:23 },
+        applyOnShipping: false // zet op true als BTW ook over verzendkosten moet
+      },
+      shipping: {
+        methods: [
+          { id: 'standard', label: 'Standaard (3–7 dagen)', price: 0 },
+          { id: 'tracked',  label: 'Tracked (2–5 dagen)',  price: 4.99 },
+          { id: 'express',  label: 'Express (1–3 dagen)',  price: 14.99 }
+        ]
+      },
       stripe: {
         // Snelste manier: een vaste Checkout‑link van Stripe (geen backend nodig)
-        checkoutLink: 'VUL_HIER_JE_STRIPE_CHECKOUT_LINK_IN'
+        checkoutLink: 'https://JOUW_STRIPE_CHECKOUT_LINK_HIER' // ← vervang dit met jouw Stripe Checkout-link
         // Geavanceerd (optioneel): eigen endpoint dat een Checkout Session maakt
         // createCheckoutSessionUrl: 'https://jouwdomein.com/api/checkout'
       },
       aliexpress: {
         // Voor de live AliExpress API: gebruik een server‑side proxy die je request signeert.
         // Vul hieronder je proxy endpoint in (NIET je app secret in de frontend plaatsen!).
-        baseUrl: '', // bv. 'https://jouw-proxy.vercel.app/api/aliexpress/search'
+        baseUrl: 'https://VERCEL_API_URL_HIER/api/aliexpress' // ← vervang dit met jouw Vercel-URL
         // Map bronvelden → ons Product schema
         map: (item) => ({
           id: String(item.id || item.productId || crypto.randomUUID()),
@@ -265,7 +326,7 @@
         await importDemo(); return
       }
       try{
-        const res = await fetch(CONFIG.aliexpress.baseUrl+ '?q=electronics') // jouw proxy mag eigen queryparameters gebruiken
+        const res = await fetch(CONFIG.aliexpress.baseUrl+ '?keywords=electronics') // jouw proxy mag eigen queryparameters gebruiken
         const json = await res.json()
         const items = Array.isArray(json) ? json : json.data || json.items || json.result || []
         state.products = items.map(CONFIG.aliexpress.map)
@@ -282,6 +343,70 @@
     }
 
     // ==========================
+    // CHECKOUT PAGE HELPERS
+    // ==========================
+    function ensureCheckoutDefaults(){
+      const countryEl = document.getElementById('co-country');
+      if(countryEl && !countryEl.value){ countryEl.value = CONFIG.tax.defaultCountry || 'BE'; }
+      const shipEl = document.getElementById('co-shipping-method');
+      if(shipEl && !shipEl.options.length){
+        CONFIG.shipping.methods.forEach(m=>{
+          const o=document.createElement('option');
+          o.value=m.id; o.textContent=`${m.label} — ${€(m.price)}`; shipEl.appendChild(o);
+        });
+        shipEl.value = CONFIG.shipping.methods[0]?.id || 'standard';
+      }
+    }
+    function getSelectedShippingPrice(){
+      const id = (document.getElementById('co-shipping-method')||{}).value;
+      const m = CONFIG.shipping.methods.find(x=>x.id===id) || CONFIG.shipping.methods[0];
+      return m ? m.price : 0;
+    }
+    function getSelectedVatRate(){
+      const cc = (document.getElementById('co-country')||{}).value || CONFIG.tax.defaultCountry || 'BE';
+      return CONFIG.tax.ratesByCountry[cc] ?? 21;
+    }
+    // ==========================
+    function renderCheckoutSummary(){
+      const wrap = document.getElementById('checkout-items');
+      wrap.innerHTML = '';
+      state.cart.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-3';
+        row.innerHTML = `
+          <img src="${item.image}" class="w-16 h-16 rounded-xl object-cover"/>
+          <div class="flex-1">
+            <p class="font-semibold leading-tight">${item.title}</p>
+            <p class="text-sm text-white/60">${CONFIG.currencySymbol}${item.price.toFixed(2).replace('.', ',')} × ${item.qty}</p>
+          </div>
+          <div class="font-semibold">${CONFIG.currencySymbol}${(item.price*item.qty).toFixed(2).replace('.', ',')}</div>
+        `;
+        wrap.appendChild(row);
+      });
+      const subtotal = cartSubtotal();
+      const shipping = getSelectedShippingPrice();
+      const vatRate = getSelectedVatRate();
+      const vatBase = CONFIG.tax.applyOnShipping ? (subtotal + shipping) : subtotal;
+      const vatAmount = +(vatBase * (vatRate/100)).toFixed(2);
+      document.getElementById('co-subtotal').textContent = €(subtotal);
+      document.getElementById('co-shipping').textContent = €(shipping);
+      document.getElementById('co-vat-rate').textContent = `${vatRate}%`;
+      document.getElementById('co-vat').textContent = €(vatAmount);
+      document.getElementById('co-total').textContent = €(subtotal + shipping + vatAmount);
+    }
+
+    function openCheckout(){
+      if(state.cart.length === 0){ alert('Je winkelwagen is leeg.'); return }
+      ensureCheckoutDefaults();
+      renderCheckoutSummary();
+      document.getElementById('checkout-page').classList.remove('hidden');
+    }
+
+    function closeCheckout(){
+      document.getElementById('checkout-page').classList.add('hidden');
+    }
+
+    // ==========================
     // EVENTS
     // ==========================
     document.getElementById('search').addEventListener('input',e=>{ state.filters.q=e.target.value.toLowerCase(); renderGrid() })
@@ -289,7 +414,12 @@
     document.getElementById('open-cart').addEventListener('click',()=> document.getElementById('cart').classList.remove('hidden'))
     document.getElementById('close-cart').addEventListener('click',()=> document.getElementById('cart').classList.add('hidden'))
     document.getElementById('cart-overlay').addEventListener('click',()=> document.getElementById('cart').classList.add('hidden'))
-    document.getElementById('checkout').addEventListener('click', startCheckout)
+    document.getElementById('checkout').addEventListener('click', openCheckout)
+    document.getElementById('close-checkout').addEventListener('click', closeCheckout)
+    document.getElementById('checkout-overlay').addEventListener('click', closeCheckout)
+    document.getElementById('checkout-form').addEventListener('submit', (e)=>{ e.preventDefault(); startCheckout() })
+    document.getElementById('co-country').addEventListener('change', renderCheckoutSummary)
+    document.getElementById('co-shipping-method').addEventListener('change', renderCheckoutSummary)=>{ e.preventDefault(); startCheckout() })
     document.getElementById('btn-import').addEventListener('click', importAliExpress)
 
     // ==========================
